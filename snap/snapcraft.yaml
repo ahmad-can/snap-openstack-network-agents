@@ -78,6 +78,17 @@ apps:
       - network-bind
       - shared-memory
 
+  ndr-host:
+    command: bin/openstack-network-agents dynamic-routing watch
+    daemon: simple
+    install-mode: disable
+    restart-condition: on-failure
+    plugs:
+      - network
+      - network-control
+      - ovn-chassis
+      - firewall-control
+
 parts:
   snap-version:
     plugin: nil
