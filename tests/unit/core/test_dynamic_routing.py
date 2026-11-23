@@ -8,9 +8,9 @@ from subprocess import CalledProcessError
 from unittest.mock import call, patch
 
 import pytest
+from sunbeam_ndr_contract import Agent
 
 from openstack_network_agents.core.dynamic_routing import (
-    Agent,
     DynamicRouting,
     parse_config,
 )

@@ -10,13 +10,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from openstack_network_agents.core.bridge_datapath import OVSCli, OVSCommandError
-from openstack_network_agents.core.dynamic_routing import (
+from sunbeam_ndr_contract import (
     DedicatedUplink,
     Instance,
     ProviderTrunk,
     is_usable_peering_address,
 )
+
+from openstack_network_agents.core.bridge_datapath import OVSCli, OVSCommandError
 from openstack_network_agents.core.templates import get_template
 
 _OWNER = "sunbeam-ndr-domain"

@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-
-from openstack_network_agents.core.dynamic_routing import parse_instances
+from sunbeam_ndr_contract import parse_instances
 
 
 @pytest.mark.parametrize(
@@ -75,4 +74,4 @@ def test_validate_peering_options_without_host_access(mode, options, message):
     ]
 
     with pytest.raises(ValueError, match=message):
-        parse_instances(placement)
+        parse_instances(placement, allow_legacy=True)

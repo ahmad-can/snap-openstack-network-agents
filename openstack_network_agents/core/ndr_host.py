@@ -6,9 +6,9 @@ import hashlib
 import json
 import subprocess
 from enum import StrEnum
-from typing import TypedDict
 
 from snaphelpers import Snap
+from sunbeam_ndr_contract import CONTRACT_VERSION, ValidationResult, parse_instances
 
 from openstack_network_agents.core.bridge_datapath import OVSCli
 from openstack_network_agents.core.common import ovs_switch_socket
@@ -19,7 +19,6 @@ from openstack_network_agents.core.dynamic_routing import (
     _read,
     _write_private,
     parse_config,
-    parse_instances,
 )
 from openstack_network_agents.core.ndr_peering import NDRPeering
 
@@ -45,22 +44,12 @@ def _host(snap: Snap) -> NDRPeering:
     return NDRPeering(OVSCli(ovs_switch_socket(snap), timeout=OVS_CLI_DEFAULT_TIMEOUT))
 
 
-ValidationResult = TypedDict(
-    "ValidationResult",
-    {
-        "contract-version": int,
-        "instances": list[dict[str, object]],
-        "managed-addresses": dict[str, str],
-    },
-)
-
-
 def validate(snap: Snap, instances: object) -> ValidationResult:
     """Check the complete per-unit contract before applying any resources."""
     placement = parse_instances(instances)
     if not placement:
         return {
-            "contract-version": 1,
+            "contract-version": CONTRACT_VERSION,
             "instances": [],
             "managed-addresses": {},
         }
@@ -68,7 +57,7 @@ def validate(snap: Snap, instances: object) -> ValidationResult:
     attachments, normalized = peering.resolve(placement)
     peering.check_firewall(attachments)
     return {
-        "contract-version": 1,
+        "contract-version": CONTRACT_VERSION,
         "instances": normalized,
         "managed-addresses": {
             item.interface: str(item.address) for item in attachments if item.bridge

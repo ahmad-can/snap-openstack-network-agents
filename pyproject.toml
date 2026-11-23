@@ -36,6 +36,7 @@ dependencies = [
     "pydantic>=2,<3",
     "pyroute2==0.7.11",
     "snap-helpers @ git+https://github.com/albertodonato/snap-helpers@76f8166b640163c0f20887829e31b2cafbfdec11",
+    "sunbeam-ndr-contract",
 ]
 
 [project.optional-dependencies]
@@ -65,6 +66,12 @@ namespaces = false
 
 [tool.setuptools.package-data]
 openstack_network_agents = ["templates/*.j2"]
+
+[tool.uv.workspace]
+members = ["libs/ndr-contract"]
+
+[tool.uv.sources]
+sunbeam-ndr-contract = { workspace = true }
 
 # Testing tools configuration
 [tool.coverage.run]
