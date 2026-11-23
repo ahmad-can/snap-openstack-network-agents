@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 _PEBBLE_APP = "openstack-network-agents.pebble"
 _NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_DEVICE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}")
+_PHYSNET = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")
 
 Service = TypedDict(
@@ -67,11 +69,23 @@ class Agent:
 
 
 @dataclass(frozen=True)
-class PeeringSpec:
-    """One validated attachment mode and its configuration."""
+class ProviderTrunk:
+    """A provider network segment and the address to configure on it."""
 
-    kind: Literal["dedicated-uplink", "provider-trunk"]
-    options: dict[str, object]
+    physnet: str
+    vlan: int
+    address: ipaddress.IPv4Interface | ipaddress.IPv6Interface
+
+
+@dataclass(frozen=True)
+class DedicatedUplink:
+    """An existing uplink and the optional address it must already have."""
+
+    interface: str
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address | None
+
+
+PeeringSpec = ProviderTrunk | DedicatedUplink
 
 
 @dataclass(frozen=True)
@@ -149,13 +163,13 @@ def parse_instances(instances: object) -> tuple[Instance, ...]:
         services.add(service)
         hosts.add(host)
         router_ids.add(router_id)
+        ip_version: Literal[4, 6] = 4 if instance["family"] == "ipv4" else 6
         peering = None
         if "peering" in instance:
-            peering = _parse_peering(domain, instance["peering"])
+            peering = _parse_peering(domain, ip_version, instance["peering"])
             if domain in peered_domains:
                 raise ValueError(f"Duplicate NDR domain {domain} on this node.")
             peered_domains.add(domain)
-        ip_version: Literal[4, 6] = 4 if instance["family"] == "ipv4" else 6
         placement.append(
             Instance(
                 Agent(service, host, router_id, domain), ip_version, peering, instance
@@ -164,7 +178,7 @@ def parse_instances(instances: object) -> tuple[Instance, ...]:
     return tuple(placement)
 
 
-def _parse_peering(domain: str, raw: object) -> PeeringSpec:
+def _parse_peering(domain: str, family: int, raw: object) -> PeeringSpec:
     if not isinstance(raw, dict) or len(raw) != 1:
         raise ValueError(f"NDR domain {domain} needs exactly one peering attachment.")
     kind, options = next(iter(raw.items()))
@@ -172,7 +186,64 @@ def _parse_peering(domain: str, raw: object) -> PeeringSpec:
         raise ValueError(f"Unsupported NDR attachment mode for {domain}.")
     if not isinstance(options, dict):
         raise TypeError(f"Invalid NDR peering attachment for {domain}.")
-    return PeeringSpec(kind, options)
+    if kind == "provider-trunk":
+        return _parse_provider_trunk(family, options)
+    return _parse_dedicated_uplink(family, options)
+
+
+def is_usable_peering_address(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Return whether an address is suitable for a BGP peering attachment."""
+    return not (
+        address.is_link_local
+        or address.is_loopback
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def _parse_provider_trunk(family: int, options: dict[str, object]) -> ProviderTrunk:
+    if options.keys() != {"physnet", "vlan", "address"}:
+        raise ValueError("provider-trunk requires physnet, vlan and address.")
+    physnet = options["physnet"]
+    vlan = options["vlan"]
+    if (
+        not isinstance(physnet, str)
+        or not _PHYSNET.fullmatch(physnet)
+        or type(vlan) is not int
+        or not 1 <= vlan <= 4094
+    ):
+        raise ValueError("Invalid NDR physnet or peering VLAN.")
+    value = options["address"]
+    if not isinstance(value, str) or "/" not in value:
+        raise ValueError("NDR provider-trunk address must be a CIDR.")
+    address = ipaddress.ip_interface(value)
+    if address.version != family or not is_usable_peering_address(address.ip):
+        raise ValueError(
+            "NDR provider-trunk address must match the family and be usable."
+        )
+    return ProviderTrunk(physnet, vlan, address)
+
+
+def _parse_dedicated_uplink(family: int, options: dict[str, object]) -> DedicatedUplink:
+    if "interface" not in options or options.keys() - {"interface", "address"}:
+        raise ValueError("dedicated-uplink requires an interface and optional address.")
+    interface = options["interface"]
+    if not isinstance(interface, str) or not _DEVICE.fullmatch(interface):
+        raise ValueError("Invalid NDR dedicated interface name.")
+    value = options.get("address")
+    if value is None:
+        return DedicatedUplink(interface, None)
+    if not isinstance(value, str):
+        raise TypeError("NDR dedicated address must be a bare IP address.")
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        raise ValueError("NDR dedicated address must be a bare IP address.") from None
+    if address.version != family or not is_usable_peering_address(address):
+        raise ValueError("NDR dedicated address must match the family and be usable.")
+    return DedicatedUplink(interface, address)
 
 
 def parse_config(raw: object) -> NDRConfig:
